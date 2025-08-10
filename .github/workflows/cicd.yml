@@ -44,14 +44,20 @@ jobs:
           kubectl rollout status deploy/order-deployment --timeout=180s
           kubectl rollout status deploy/analytics-deployment --timeout=180s
 
-      - name: Run integration tests
+      - name: Run integration tests (robust)
         run: |
           python -m pip install --upgrade pip >/dev/null
           pip install requests pytest >/dev/null
           nohup kubectl port-forward svc/game-svc 8081:80 >/tmp/pf-game.log 2>&1 &
           nohup kubectl port-forward svc/order-svc 8082:80 >/tmp/pf-order.log 2>&1 &
           nohup kubectl port-forward svc/analytics-svc 8083:80 >/tmp/pf-analytics.log 2>&1 &
-          sleep 6
+          sleep 2
+sudo apt-get update >/dev/null && sudo apt-get install -y netcat >/dev/null
+for p in 8081 8082 8083; do
+  for i in {1..40}; do
+    nc -z localhost \ && break || sleep 1
+  done
+done
           GAME_URL=http://localhost:8081 \
           ORDERS_URL=http://localhost:8082 \
           ANALYTICS_URL=http://localhost:8083 \
