@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+.ipynb_checkpoints/
+node_modules/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Dockerfile.task6-backup
+k8s/*.local.yaml

@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lugx-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api/game(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: game-svc
+                port: { number: 80 }
+          - path: /api/orders(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: order-svc
+                port: { number: 80 }
+          - path: /api/analytics(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: analytics-svc
+                port: { number: 80 }

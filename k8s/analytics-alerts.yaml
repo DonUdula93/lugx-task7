@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: analytics-alerts
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: analytics.rules
+      rules:
+        - alert: AnalyticsServiceDown
+          expr: up{service="analytics-service"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "analytics-service is down"
+            description: "Prometheus cannot scrape /metrics for analytics-service."
+
+        - alert: AnalyticsPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="default",pod=~"analytics-service.*"}[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "analytics-service pod restarted"
+            description: "Container restarts detected in the last 10 minutes."

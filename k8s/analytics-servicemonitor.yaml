@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: analytics-service
+  namespace: monitoring
+  labels:
+    release: monitoring   # must match your kube-prometheus-stack helm release
+spec:
+  namespaceSelector:
+    matchNames: ["default"]   # your service is in the default namespace
+  selector:
+    matchLabels:
+      app: analytics-service  # matches the Service/Deployment label
+  endpoints:
+    - port: http              # matches the Service port name
+      path: /metrics
+      interval: 15s
