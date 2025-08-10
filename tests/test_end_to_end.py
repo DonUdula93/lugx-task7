@@ -1,6 +1,15 @@
 import os, time, uuid, requests
 
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
+GAME_URL = os.getenv("GAME_URL")
+ORDERS_URL = os.getenv("ORDERS_URL")
+ANALYTICS_URL = os.getenv("ANALYTICS_URL")
+
+def pick_endpoints():
+    if BASE_URL:
+        return (f"{BASE_URL}/api/game", f"{BASE_URL}/api/orders", f"{BASE_URL}/api/analytics")
+    else:
+        return (GAME_URL, ORDERS_URL, ANALYTICS_URL)
 
 def wait_ok(url, timeout=120):
     start=time.time()
@@ -14,29 +23,28 @@ def wait_ok(url, timeout=120):
     return False
 
 def test_health_endpoints():
-    assert wait_ok(f"{BASE_URL}/api/game/health")
-    assert wait_ok(f"{BASE_URL}/api/orders/health")
-    assert wait_ok(f"{BASE_URL}/api/analytics/health")
+    g,o,a = pick_endpoints()
+    assert wait_ok(f"{g}/health")
+    assert wait_ok(f"{o}/health")
+    assert wait_ok(f"{a}/health")
 
 def test_game_crud_and_order_flow():
-    # create a game
-    gtitle = f"Zelda-{uuid.uuid4().hex[:8]}"
-    payload = {"title": gtitle, "genre": "adventure", "price": 59.99}
-    r = requests.post(f"{BASE_URL}/api/game/games", json=payload, timeout=10)
+    g,o,a = pick_endpoints()
+    title = f"Zelda-{uuid.uuid4().hex[:8]}"
+    payload = {"title": title, "genre": "adventure", "price": 59.99}
+
+    r = requests.post(f"{g}/games", json=payload, timeout=10)
     assert r.status_code in (200,201)
     created = r.json()
     gid = created.get("id") or created.get("_id") or created.get("game_id")
 
-    # list games includes it
-    r = requests.get(f"{BASE_URL}/api/game/games", timeout=10)
-    assert r.status_code==200
-    assert any((g.get("title")==gtitle) for g in r.json())
+    r = requests.get(f"{g}/games", timeout=10)
+    assert r.status_code == 200
+    assert any((item.get("title")==title) for item in r.json())
 
-    # fetch by id
-    r = requests.get(f"{BASE_URL}/api/game/games/{gid}", timeout=10)
-    assert r.status_code==200
+    r = requests.get(f"{g}/games/{gid}", timeout=10)
+    assert r.status_code == 200
 
-    # place order
     order_payload = {"game_id": gid, "quantity": 1, "payment_method": "card"}
-    r = requests.post(f"{BASE_URL}/api/orders/orders", json=order_payload, timeout=10)
+    r = requests.post(f"{o}/orders", json=order_payload, timeout=10)
     assert r.status_code in (200,201)

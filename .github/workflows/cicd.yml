@@ -1,87 +1,58 @@
-name: CI/CD (build  rolling deploy  tests)
+name: CI/CD (KinD: build ? rolling deploy ? tests)
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
-env:
-  REGISTRY: ${{ secrets.REGISTRY }}
-
 jobs:
-  build-and-push:
+  build-deploy-test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: game-service
-            path: game-service
-          - name: order-service
-            path: order-service
-          - name: analytics-service
-            path: analytics-service
     steps:
       - uses: actions/checkout@v4
-      - name: Log in to registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
-      - name: Short tag
-        id: vars
-        run: echo "TAG=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-      - name: Build
-        run: |
-          docker build -t $REGISTRY/${{ matrix.name }}:${{ steps.vars.outputs.TAG }} \
-                       -t $REGISTRY/${{ matrix.name }}:latest \
-                       ./${{ matrix.path }}
-      - name: Push
-        run: |
-          docker push $REGISTRY/${{ matrix.name }}:${{ steps.vars.outputs.TAG }}
-          docker push $REGISTRY/${{ matrix.name }}:latest
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v4
-      - name: Configure kubeconfig (base64)
-        if: ${{ secrets.KUBE_CONFIG != '' }}
-        run: |
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-      - name: Substitute registry and apply manifests
-        run: |
-          find k8s -type f -name "*.yaml" -print0 | xargs -0 sed -i "s#REGISTRY_PLACEHOLDER#${{ secrets.REGISTRY }}#g"
-          kubectl apply -f k8s/
-      - name: Roll out with unique TAG
+      - name: Set up KinD
+        uses: helm/kind-action@v1.9.0
+        with:
+          cluster_name: ci
+          version: v1.29.0
+
+      - name: Build Docker images
         run: |
           TAG=${GITHUB_SHA::7}
-          kubectl set image deploy/game-deployment game=${{ secrets.REGISTRY }}/game-service:${TAG}
-          kubectl set image deploy/order-deployment order=${{ secrets.REGISTRY }}/order-service:${TAG}
-          kubectl set image deploy/analytics-deployment analytics=${{ secrets.REGISTRY }}/analytics-service:${TAG}
+          docker build -t game-service:$TAG game-service
+          docker build -t order-service:$TAG order-service
+          docker build -t analytics-service:$TAG analytics-service
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Load images into KinD
+        run: |
+          kind load docker-image game-service:$TAG --name ci
+          kind load docker-image order-service:$TAG --name ci
+          kind load docker-image analytics-service:$TAG --name ci
+
+      - name: Apply manifests
+        run: |
+          kubectl apply -f k8s/
+          kubectl set image deploy/game-deployment game=game-service:$TAG
+          kubectl set image deploy/order-deployment order=order-service:$TAG
+          kubectl set image deploy/analytics-deployment analytics=analytics-service:$TAG
+
       - name: Wait for rollouts
         run: |
-          bash scripts/wait_for_rollout.sh game-deployment
-          bash scripts/wait_for_rollout.sh order-deployment
-          bash scripts/wait_for_rollout.sh analytics-deployment
+          kubectl rollout status deploy/game-deployment --timeout=180s
+          kubectl rollout status deploy/order-deployment --timeout=180s
+          kubectl rollout status deploy/analytics-deployment --timeout=180s
 
-  post-deploy-tests:
-    runs-on: ubuntu-latest
-    needs: deploy
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests pytest
       - name: Run integration tests
-        env:
-          BASE_URL: ${{ secrets.PROD_BASE_URL }}
-        run: pytest -q tests/test_end_to_end.py
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          pip install requests pytest >/dev/null
+          nohup kubectl port-forward svc/game-svc 8081:80 >/tmp/pf-game.log 2>&1 &
+          nohup kubectl port-forward svc/order-svc 8082:80 >/tmp/pf-order.log 2>&1 &
+          nohup kubectl port-forward svc/analytics-svc 8083:80 >/tmp/pf-analytics.log 2>&1 &
+          sleep 6
+          GAME_URL=http://localhost:8081 \
+          ORDERS_URL=http://localhost:8082 \
+          ANALYTICS_URL=http://localhost:8083 \
+          pytest -q tests/test_end_to_end.py
